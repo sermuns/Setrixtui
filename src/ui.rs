@@ -34,6 +34,34 @@ pub fn max_playfield_cells_for_terminal(term_cols: u16, term_rows: u16) -> (u16,
     (max_width, max_height)
 }
 
+/// Minimum playfield size (grid cells). Zooming out can increase size up to MAX.
+pub const MIN_PLAYFIELD_WIDTH: u16 = 10;
+pub const MIN_PLAYFIELD_HEIGHT: u16 = 24;
+/// Maximum playfield size; kept modest so zooming out doesn't make the board insanely wide/tall.
+pub const MAX_PLAYFIELD_WIDTH: u16 = 12;
+pub const MAX_PLAYFIELD_HEIGHT: u16 = 28;
+
+/// Playfield size that fits the terminal: at most MAX, at least 1. When terminal is small we go below MIN so content always fits (no squeeze).
+pub fn playfield_size_for_terminal_clamped(term_cols: u16, term_rows: u16) -> (u16, u16) {
+    let (max_w, max_h) = max_playfield_cells_for_terminal(term_cols, term_rows);
+    let w = max_w.min(MAX_PLAYFIELD_WIDTH).max(1);
+    let h = max_h.min(MAX_PLAYFIELD_HEIGHT).max(1);
+    (w, h)
+}
+
+/// Color for playfield size indicator: red = minimum, yellow = okay, green = good.
+pub fn playfield_size_indicator_color(w: u16, h: u16) -> Color {
+    let min_cells = MIN_PLAYFIELD_WIDTH as u32 * MIN_PLAYFIELD_HEIGHT as u32;
+    let cells = w as u32 * h as u32;
+    if cells <= min_cells {
+        Color::Red
+    } else if cells <= min_cells * 13 / 10 {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
 const SIDEBAR_WIDTH: u16 = 24;
 
 /// Duration of line-clear fade (TachyonFX) in ms (SPEC §14.1: ~30 ms per grain).
@@ -211,6 +239,7 @@ const NEXT_MINI_CELL_H: u16 = 1;
 /// Draw current screen (menu, game, game over), with optional pause overlay and game-over reason.
 /// When `line_clear_in_progress` and !no_animation, applies TachyonFX fade effect and updates
 /// `line_clear_effect` / `line_clear_process_time`.
+/// When on menu, `menu_playfield_size` is Some((w, h)) for the playfield size that will be used if the user starts (zoom out = bigger).
 pub fn draw(
     frame: &mut Frame,
     screen: Screen,
@@ -228,22 +257,10 @@ pub fn draw(
     now: Instant,
     no_animation: bool,
     quit_selected: Option<crate::app::QuitOption>,
+    menu_playfield_size: Option<(u16, u16)>,
 ) {
-    let (pw, ph) = playfield_pixel_size(state.playfield.width as u16, state.playfield.height as u16);
-    let min_w = pw + SIDEBAR_WIDTH;
-    let min_h = ph;
-
-    if area.width < min_w || area.height < min_h {
-        let lines = vec![
-            Line::from(Span::styled("TERMINAL SQUEEZE", Style::default().fg(Color::Yellow).bold())),
-            Line::from(format!("{}x{} < {}x{}", area.width, area.height, min_w, min_h)),
-        ];
-        let p = Paragraph::new(lines).alignment(Alignment::Right);
-        frame.render_widget(p, Rect { x: area.x, y: area.y, width: area.width, height: 2 });
-    }
-
     match screen {
-        Screen::Menu => draw_menu(frame, state, menu_state, area, now),
+        Screen::Menu => draw_menu(frame, state, menu_state, area, now, menu_playfield_size),
         Screen::Playing => {
             draw_game(frame, state, area, mode, time_limit, game_start, now);
             if paused {
@@ -282,9 +299,16 @@ pub fn draw(
     }
 }
 
-fn draw_menu(frame: &mut Frame, state: &GameState, menu_state: &MenuState, area: Rect, now: Instant) {
+fn draw_menu(
+    frame: &mut Frame,
+    state: &GameState,
+    menu_state: &MenuState,
+    area: Rect,
+    now: Instant,
+    menu_playfield_size: Option<(u16, u16)>,
+) {
     let popup_w = 48u16;
-    let popup_h = 20u16;
+    let popup_h = if menu_playfield_size.is_some() { 22 } else { 20 };
     let popup = Rect {
         x: area.x + area.width.saturating_sub(popup_w) / 2,
         y: area.y + area.height.saturating_sub(popup_h) / 2,
@@ -294,9 +318,8 @@ fn draw_menu(frame: &mut Frame, state: &GameState, menu_state: &MenuState, area:
 
     // Dynamic Neon Title
     let title = Line::from(vec![
-        Span::styled(" S A N D ", Style::default().fg(Color::Rgb(255, 120, 120)).bold()),
-        Span::styled(" T R I X ", Style::default().fg(Color::Rgb(120, 255, 120)).bold()),
-        Span::styled(" T U I ", Style::default().fg(state.theme.main_fg).bold()),
+        Span::styled(" Setrix ", Style::default().fg(Color::Rgb(255, 120, 120)).bold()),
+        Span::styled(" tui ", Style::default().fg(state.theme.main_fg).bold()),
     ]);
 
     let ratman_style = if menu_state.ratman_unlocked {
@@ -361,11 +384,25 @@ fn draw_menu(frame: &mut Frame, state: &GameState, menu_state: &MenuState, area:
         Span::styled(" [ START SIMULATION ] ", normal_style)
     };
 
-    let lines = vec![
+    let playfield_size_line = menu_playfield_size.map(|(w, h)| {
+        let color = playfield_size_indicator_color(w, h);
+        Line::from(Span::styled(
+            format!(" Playfield {}×{} ", w, h),
+            Style::default().fg(color).bold(),
+        ))
+    });
+
+    let mut lines = vec![
         Line::from(""),
         title,
         ratman_tag,
         Line::from(""),
+    ];
+    if let Some(line) = playfield_size_line {
+        lines.push(line);
+        lines.push(Line::from(""));
+    }
+    lines.extend([
         Line::from(""),
         Line::from(Span::styled(" ─ SYSTEM DIFFICULTY ─ ", Style::default().fg(state.theme.div_line))),
         Line::from(vec![diff_easy, Span::from("  "), diff_med, Span::from("  "), diff_hard]),
@@ -387,7 +424,7 @@ fn draw_menu(frame: &mut Frame, state: &GameState, menu_state: &MenuState, area:
         ]),
         Line::from(""),
         Line::from(Span::styled(" ⌁ [Q] ABORT SESSION ", Style::default().fg(Color::Rgb(255, 80, 80)))),
-    ];
+    ]);
 
     let p = Paragraph::new(lines)
         .alignment(Alignment::Center)

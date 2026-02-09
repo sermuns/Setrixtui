@@ -1,4 +1,18 @@
-# Setrixtui
+<div align="center">
+
+  ![Logo](./assets/Screenshot_20260209-034648.png)
+
+*(SetrixTui)*
+
+![written in Rust](https://img.shields.io/badge/language-rust-red.svg?style=flat-square)
+
+  Tui Setrix Falling blocks that turns to sand Game.
+
+  <img width="860" height="1019" alt="Screenshot_20251006-032156" src="https://github.com/user-attachments/assets/777bd0a4-eb52-4014-837b-d361ab57cfff.png" />
+
+
+
+</div>
 
 Terminal puzzle game: Setris/Sandtrix-style falling blocks that turn into sand. You clear lines by making a single colour connect the **left edge to the right edge** (8-neighbour, path can be diagonal). Matching piece colours and completing those spans scores points; remaining sand falls under gravity.
 

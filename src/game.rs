@@ -288,43 +288,13 @@ impl Playfield {
         for y in (0..limit_y).rev() {
             for &x in &x_order {
                 if let Some(Cell::Sand(c, is_shadow)) = self.get(x, y) {
-                    // --- STOCHASTIC GRAVITY (Grain Separation) ---
-                    // Using tick_count + coordinates ensures every frame is different.
-                    let entropy_seed = (x as u32).wrapping_mul(7).wrapping_add(y as u32).wrapping_mul(13).wrapping_add(self.tick_count.wrapping_mul(17));
-                    
-                    // --- BALANCED GRAVITY REACTIVITY ---
-                    // Lower lag (35%) ensures sand feels reactive and falls naturally,
-                    // avoiding the "molasses" effect while keeping grains separate.
-                    if (entropy_seed % 100) < 35 {
-                        continue;
-                    }
-
-                    // --- HORIZONTAL DIFFUSION (Dither) ---
-                    // 10% chance to drift sideways even if down is clear.
-                    // This breaks up mechanical 45-degree staircase patterns.
-                    let drift_roll = (entropy_seed / 100) % 100;
-                    if drift_roll < 10 {
-                        let drift_left = (entropy_seed / 1000) % 2 == 0;
-                        if drift_left && x > 0 && self.get(x - 1, y + 1) == Some(Cell::Empty) {
-                            self.set(x, y, Cell::Empty);
-                            self.set(x - 1, y + 1, Cell::Sand(c, is_shadow));
-                            moved = true;
-                            continue;
-                        } else if !drift_left && x + 1 < gw && self.get(x + 1, y + 1) == Some(Cell::Empty) {
-                            self.set(x, y, Cell::Empty);
-                            self.set(x + 1, y + 1, Cell::Sand(c, is_shadow));
-                            moved = true;
-                            continue;
-                        }
-                    }
-
                     // 1. Try straight down
                     if self.get(x, y + 1) == Some(Cell::Empty) {
                         self.set(x, y, Cell::Empty);
                         self.set(x, y + 1, Cell::Sand(c, is_shadow));
                         moved = true;
-                    } 
-                    // 2. Cascading: try down-left or down-right
+                    }
+                    // 2. Cascading: try down-left or down-right only when blocked below
                     else {
                         let try_left = x > 0 && self.get(x - 1, y + 1) == Some(Cell::Empty);
                         let try_right = x + 1 < gw && self.get(x + 1, y + 1) == Some(Cell::Empty);
@@ -353,15 +323,20 @@ impl Playfield {
 
     /// Game over if any sand in spawn zone (top SPAWN_ZONE_ROWS).
     pub fn game_over(&self) -> bool {
-        let (gw, _gh) = self.grain_dims();
-        for y in 0..SPAWN_ZONE_ROWS {
+        self.topmost_sand_y().map_or(false, |y| y < SPAWN_ZONE_ROWS)
+    }
+
+    /// Minimum (topmost) row index that contains any sand. None if playfield has no sand.
+    pub fn topmost_sand_y(&self) -> Option<usize> {
+        let (gw, gh) = self.grain_dims();
+        for y in 0..gh {
             for x in 0..gw {
                 if matches!(self.get(x, y), Some(Cell::Sand(..))) {
-                    return true;
+                    return Some(y);
                 }
             }
         }
-        false
+        None
     }
 
 }
@@ -535,6 +510,7 @@ impl GameState {
                 self.lock_delay_resets = 0;
             }
         }
+        self.update_game_over_status();
     }
 
     /// Check if piece should lock due to time spent on ground.
@@ -707,9 +683,9 @@ impl GameState {
 
         // Trigger line clear check on the playfield
         self.process_clears();
-        
-        if self.playfield.game_over() {
-            self.game_over = true;
+
+        self.update_game_over_status();
+        if self.game_over {
             return;
         }
         if !self.line_clear_in_progress {
@@ -717,11 +693,31 @@ impl GameState {
         }
     }
 
+    /// Updates game_over flag when the effective top of the stack (sand or frozen) enters the spawn zone.
+    /// Falling grains count as height even if they haven't landed on the main pile.
+    /// We do not include the current piece: it always starts in the spawn zone and would trigger
+    /// game over after the first gravity tick. Spawn-zone blockage is already handled by can_place in spawn_next.
+    fn update_game_over_status(&mut self) {
+        if self.game_over {
+            return;
+        }
+        if self.playfield.game_over() {
+            self.game_over = true;
+            return;
+        }
+        if self.frozen_grains.iter().any(|g| g.y < SPAWN_ZONE_ROWS) {
+            self.game_over = true;
+        }
+    }
+
     /// Called after line-clear animation: clear cells, apply gravity, spawn next.
+    /// Only spawns a new piece if none is currently active (avoids replacing a mid-air piece).
     pub fn finish_line_clear(&mut self) {
         if self.line_clear_cells.is_empty() {
             self.line_clear_in_progress = false;
-            self.spawn_next();
+            if self.piece.is_none() {
+                self.spawn_next();
+            }
             return;
         }
         for &(x, y) in &self.line_clear_cells {
@@ -729,9 +725,9 @@ impl GameState {
         }
         self.line_clear_cells.clear();
         self.line_clear_in_progress = false;
-        // Don't spawn next immediately if there's sand still falling?
-        // Actually, we'll let sand fall while the next piece is active.
-        self.spawn_next();
+        if self.piece.is_none() {
+            self.spawn_next();
+        }
     }
 
     /// Update sand physics (one step). Should be called regularly.
@@ -768,6 +764,7 @@ impl GameState {
         if (moved || (self.crumble_delay_ticks == 0 && !self.frozen_grains.is_empty())) && !self.line_clear_in_progress {
             self.process_clears();
         }
+        self.update_game_over_status();
     }
 
     /// Check for clears and update score/popups. 
@@ -789,9 +786,14 @@ impl GameState {
             self.clears += num;
             self.level = 1 + self.lines_cleared / 10;
             
-            self.line_clear_cells = cells;
+            self.line_clear_cells = cells.clone();
             self.line_clear_in_progress = true;
-            
+
+            // Remove frozen/crumbling grains that sit in the clear zone so the whole block
+            // clears at once instead of leftover grains draining and falling after.
+            let clear_set: HashSet<(usize, usize)> = cells.into_iter().collect();
+            self.frozen_grains.retain(|fg| !clear_set.contains(&(fg.x, fg.y)));
+
             // Score popup for EVERY clear trigger
             let (px, py) = if !self.line_clear_cells.is_empty() {
                 self.line_clear_cells[0]
@@ -813,18 +815,19 @@ impl GameState {
     fn spawn_next(&mut self) {
         let width = self.playfield.width as u16;
         let height = self.playfield.height as u16;
-        
+
         // Pull from queue
         let next_kind = self.next_pieces.remove(0);
         // Refill queue
         self.next_pieces.push(self.bag.next());
-        
+
         self.piece = Some(Self::spawn_piece(width, height, next_kind));
         if self.spawn_delay_ms > 0 {
             self.spawn_ready_at = Some(Instant::now() + std::time::Duration::from_millis(self.spawn_delay_ms));
         } else {
             self.spawn_ready_at = None;
         }
+        self.update_game_over_status();
         if !self.playfield.can_place(self.piece.as_ref().unwrap()) {
             self.game_over = true;
         }

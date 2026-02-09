@@ -94,6 +94,9 @@ pub struct App {
     quit_selected: QuitOption,
     high_score_endless: u32,
     high_score_timed: u32,
+    /// Playfield size from current terminal when on menu (zoom out = bigger). Used when starting from menu; during play size is fixed.
+    menu_playfield_width: u16,
+    menu_playfield_height: u16,
 }
 
 fn default_tick_rate_for_difficulty(d: crate::Difficulty) -> f64 {
@@ -143,6 +146,8 @@ impl App {
             quit_selected: QuitOption::Resume,
             high_score_endless: 0,
             high_score_timed: 0,
+            menu_playfield_width: width,
+            menu_playfield_height: height,
         })
     }
 
@@ -240,13 +245,15 @@ impl App {
 
         let mut terminal = ratatui::DefaultTerminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
 
-        // Clamp playfield to terminal so --width/--height and border are respected
+        // Size playfield to fit terminal (no squeeze); respect --width/--height when they fit
         let (term_cols, term_rows) = size()?;
-        let (max_w, max_h) = crate::ui::max_playfield_cells_for_terminal(term_cols, term_rows);
+        let (fit_w, fit_h) = crate::ui::playfield_size_for_terminal_clamped(term_cols, term_rows);
         let requested_w = crate::effective_playfield_width(self.args.difficulty, self.args.width);
         let requested_h = self.args.height;
-        self.effective_playfield_width = requested_w.min(max_w);
-        self.effective_playfield_height = requested_h.min(max_h);
+        self.effective_playfield_width = requested_w.min(fit_w).max(1);
+        self.effective_playfield_height = requested_h.min(fit_h).max(1);
+        self.menu_playfield_width = self.effective_playfield_width;
+        self.menu_playfield_height = self.effective_playfield_height;
         let need_resize = self.state.playfield.width != self.effective_playfield_width as usize
             || self.state.playfield.height != self.effective_playfield_height as usize;
         if need_resize {
@@ -271,6 +278,13 @@ impl App {
     fn run_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         loop {
             let now = Instant::now();
+            if self.screen == Screen::Menu {
+                let (c, r) = crossterm::terminal::size().unwrap_or((80, 24));
+                let (w, h) = crate::ui::playfield_size_for_terminal_clamped(c, r);
+                self.menu_playfield_width = w;
+                self.menu_playfield_height = h;
+            }
+            let menu_size = (self.screen == Screen::Menu).then(|| (self.menu_playfield_width, self.menu_playfield_height));
             terminal.draw(|f| {
                 crate::ui::draw(
                     f,
@@ -289,6 +303,7 @@ impl App {
                     now,
                     self.args.no_animation,
                     if self.screen == Screen::QuitMenu { Some(self.quit_selected) } else { None },
+                    menu_size,
                 )
             })?;
 
@@ -418,9 +433,12 @@ impl App {
                                         };
                                     }
                                     Action::HardDrop => {
-                                        if self.menu_state.current_tab == MenuTab::Start {
+                                            if self.menu_state.current_tab == MenuTab::Start {
                                             self.args.difficulty = self.menu_state.selected_difficulty;
                                             self.args.mode = self.menu_state.selected_mode;
+                                            self.config.difficulty = self.args.difficulty;
+                                            self.effective_playfield_width = self.menu_playfield_width;
+                                            self.effective_playfield_height = self.menu_playfield_height;
                                             self.reset_game();
                                         } else {
                                             self.menu_state.current_tab = MenuTab::Start;
@@ -447,6 +465,9 @@ impl App {
                                             if self.menu_state.current_tab == MenuTab::Start {
                                                 self.args.difficulty = self.menu_state.selected_difficulty;
                                                 self.args.mode = self.menu_state.selected_mode;
+                                                self.config.difficulty = self.args.difficulty;
+                                                self.effective_playfield_width = self.menu_playfield_width;
+                                                self.effective_playfield_height = self.menu_playfield_height;
                                                 self.reset_game();
                                             } else {
                                                 self.menu_state.current_tab = MenuTab::Start;
