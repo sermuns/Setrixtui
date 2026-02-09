@@ -42,7 +42,7 @@ cargo build --release
 
 By default you get the main menu (difficulty, mode), then play. Endless mode and easy difficulty are selected by default. Use `--theme ./onedark.theme` for the One Dark theme (otherwise the built-in One Dark is used).
 
-<video src="./assets/setrix.mp4" controls muted loop></video>
+![Setrixtui gameplay](assets/setrix.mp4)
 
 Start without the menu:
 
