@@ -2,19 +2,19 @@
 
   ![Logo](./assets/Screenshot_20260209-034648.png)
 
-*(SetrixTui)*
+  **Setrixtui**
 
-![written in Rust](https://img.shields.io/badge/language-rust-red.svg?style=flat-square)
+  ![written in Rust](https://img.shields.io/badge/language-rust-red.svg?style=flat-square)
 
-  Tui Setrix Falling blocks that turns to sand Game.
-
-  <img width="860" height="1019" alt="Screenshot_20251006-032156" src="https://github.com/user-attachments/assets/777bd0a4-eb52-4014-837b-d361ab57cfff.png" />
-
-
+  A terminal puzzle game: falling blocks that turn into sand. Clear lines by connecting one colour from edge to edge.
 
 </div>
 
-Terminal puzzle game: Setris/Sandtrix-style falling blocks that turn into sand. You clear lines by making a single colour connect the **left edge to the right edge** (8-neighbour, path can be diagonal). Matching piece colours and completing those spans scores points; remaining sand falls under gravity.
+---
+
+## Overview
+
+Setrixtui is a Setris/Sandtrix-style game in the terminal. Place coloured blocks; when they lock, they turn into sand. Clear lines by making a single colour connect the **left edge to the right edge** (8-neighbour, path can be diagonal). Matching piece colours and completing those spans scores points; remaining sand falls under gravity.
 
 ## Requirements
 
@@ -22,84 +22,95 @@ Terminal puzzle game: Setris/Sandtrix-style falling blocks that turn into sand. 
 - Edition 2024
 
 ## Installation
+
 ```bash
 cargo install setrixtui
 ```
+
+Or build from source:
 
 ```bash
 cargo build --release
 ./target/release/setrixtui
 ```
 
-## Running
+## Quick start
 
 ```bash
 ./target/release/setrixtui
 ```
 
-Default: main menu (difficulty, mode), then play. Endless mode, easy difficulty, One Dark theme from `onedark.theme` if you pass `--theme ./onedark.theme` (otherwise built-in One Dark).
+By default you get the main menu (difficulty, mode), then play. Endless mode and easy difficulty are selected by default. Use `--theme ./onedark.theme` for the One Dark theme (otherwise the built-in One Dark is used).
+
+<video src="./assets/setrix.mp4" controls muted loop></video>
+
+Start without the menu:
 
 ```bash
 ./target/release/setrixtui --no-menu
 ```
 
-Starts the game immediately, no menu.
+Custom playfield and options:
 
 ```bash
 ./target/release/setrixtui --width 10 --height 24 --theme ./onedark.theme
 ./target/release/setrixtui -m timed --time-limit 180 -d hard --no-animation
 ```
 
-Playfield size is in **grid cells** (columns and rows). Default is 10 columns and 24 rows. If your terminal is too small for that, the game **clamps** width and height so the whole board plus border and sidebar fit on screen. So e.g. `--height 50` on a 64-row terminal will use a smaller height that fits (border and sidebar included); the bottom is no longer drawn off-screen.
+Playfield size is in **grid cells** (columns × rows). Default is 10×24. The game sizes the board to fit your terminal: in the menu, zooming out gives a larger playfield (up to 12×28); during play, the size is fixed. If the terminal is small, the board is reduced so everything fits.
 
-Game over: **R** restart, **Q** quit.
+**Game over:** **R** restart, **Q** quit.
 
 ## Layout
 
-- **Playfield**: left side, bordered. Each block is 6×6 “grains”; the board is drawn with half-blocks (▀) so two grain rows per terminal row.
-- **Sidebar** (24 cols): next-piece preview (real shape), the six sand colours, score, level, and (in timed mode) remaining time.
+![Setrixtui layout](./assets/Screenshot_20260209-191136.png)
 
-Exact size: playfield needs `(width*6 + 2)` columns and `(height*3 + 2)` rows (border counts); plus 24 columns for the sidebar. If the terminal is smaller, the used playfield size is reduced so everything fits.
+- **Playfield** (left, bordered): each block is 6×6 “grains”; the board uses half-blocks (▀) so two grain rows map to one terminal row.
+- **Sidebar** (24 cols): next-piece preview (number depends on difficulty), six sand colours, score, level, and in timed mode the remaining time.
+
+Rough size: playfield needs `(width×6 + 2)` columns and `(height×3 + 2)` rows including border, plus 24 columns for the sidebar.
 
 ## Modes
 
-- **Endless** (default): play until stack overflow. **R** to restart, **Q** to quit.
-- **Timed** (`-m timed`, `--time-limit SECS`): score as much as you can before time runs out. When time is up you see “Time’s up!” and can **R** or **Q**.
-- **Clear** (`-m clear`, `--clear-lines N`): win by clearing N edge-to-edge lines. “You win!” at the target.
+| Mode     | Description |
+|----------|-------------|
+| **Endless** (default) | Play until stack overflow. **R** restart, **Q** quit. |
+| **Timed** (`-m timed`, `--time-limit SECS`) | Score as much as you can before time runs out. **R** or **Q** when time’s up. |
+| **Clear** (`-m clear`, `--clear-lines N`) | Win by clearing N edge-to-edge lines. |
 
 ## Controls
 
-Movement keys repeat if held. Normal and vim-style both work.
+Movement keys repeat when held. Normal and vim-style bindings are supported.
 
 | Action     | Normal        | Vim    |
 |------------|---------------|--------|
 | Left       | ←             | h      |
 | Right      | →             | l      |
 | Rotate CW  | ↑             | k / i  |
-| Rotate CCW | —             | u      |
+| Rotate CCW | (see --help)  | u      |
 | Soft drop  | ↓             | j      |
 | Hard drop  | Enter / Space | Space  |
 | Pause      | p             | p      |
 | Quit       | q / Esc       | q      |
 
-**P** toggles pause. On game over / win / time’s up: **R** restart, **Q** quit.
+**P** toggles pause. On game over or win: **R** restart, **Q** quit.
 
 ## Theme and colours
 
-Themes are btop-style: `theme[key]="value"` with hex colours. Example: `onedark.theme` in the repo.
+Themes are btop-style: `theme[key]="value"` with hex colours. See `onedark.theme` in the repo.
 
-- **With `--theme FILE`**: colours are read from the file. Sand colours map from keys like `mem_box`, `title`, `cpu_end`, `cpu_box`, `net_box`, `hi_fg`; UI from `meter_bg`, `div_line`, `main_fg`, `title`, `inactive_fg`. No extra saturation: the hex values from the file are used as-is.
-- **Without a theme file**: built-in One Dark is used, with the same hex values as in `onedark.theme` (e.g. `#98C379`, `#E5C07B`, `#E06C75`, `#61AFEF`, `#C678DD`, `#56B6C2` for the six sand colours; `#31353F` background; `#3F444F` dividers).
+- **`--theme FILE`**: load colours from the file. Sand colours use keys such as `mem_box`, `title`, `cpu_end`, `cpu_box`, `net_box`, `hi_fg`; UI uses `meter_bg`, `div_line`, `main_fg`, `title`, `inactive_fg`. Hex values are used as-is.
+- **No theme file**: built-in One Dark is used (same hex values as in `onedark.theme`).
 
-`--palette high-contrast` or `--palette colorblind` overrides only the **sand** colours (for visibility); they do not change the rest of the theme.
+`--palette high-contrast` or `--palette colorblind` overrides only the **sand** colours; the rest of the theme is unchanged.
 
-## CLI options (summary)
+## CLI summary
 
-- **Playfield**: `--width COLS`, `--height ROWS` (default 10×24). Clamped to terminal size so the window fits.
-- **Mode**: `-m endless|timed|clear`. Timed: `--time-limit SECS`. Clear: `--clear-lines N`.
-- **Difficulty**: `-d easy|medium|hard` (affects gravity and, if applicable, width).
-- **Theme**: `--theme FILE` (btop-style). `--palette normal|high-contrast|colorblind` for sand only.
-- **Tuning**: `--tick-rate`, `--frame-rate`, `--spawn-delay-ms`, `--lock-delay-ms`, `--initial-level`, `--relaxed`, `--sand-settle`, `--no-animation`, `--no-menu`, `--high-color`.
+- **Playfield:** `--width COLS`, `--height ROWS` (default 10×24). Sized to fit the terminal.
+- **Mode:** `-m endless | timed | clear`. Timed: `--time-limit SECS`. Clear: `--clear-lines N`.
+- **Difficulty:** `-d easy | medium | hard` (gravity and next-piece preview count).
+- **Theme:** `--theme FILE` (btop-style). `--palette normal | high-contrast | colorblind` for sand only.
+- **Tuning:** `--tick-rate`, `--frame-rate`, `--spawn-delay-ms`, `--lock-delay-ms`, `--initial-level`, `--relaxed`, `--sand-settle`, `--no-animation`, `--no-menu`, `--high-color`.
 
 Full list: `setrixtui --help`.
 
