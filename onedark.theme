@@ -1,0 +1,74 @@
+# One Dark Pro theme for btop
+# Based on original One Dark Pro palette
+# Preserves your gradient structure & meaning
+
+theme[main_bg]=""
+theme[main_fg]="#ABB2BF"
+
+theme[title]="#E5C07B"
+
+theme[hi_fg]="#56B6C2"
+
+theme[selected_bg]="#3A4048"
+theme[selected_fg]="#ABB2BF"
+
+theme[inactive_fg]="#5C6370"
+
+theme[graph_text]="#E5C07B"
+
+theme[meter_bg]="#31353F"
+
+theme[proc_misc]="#56B6C2"
+
+# Box outlines
+theme[cpu_box]="#61AFEF"
+theme[mem_box]="#98C379"
+theme[net_box]="#C678DD"
+theme[proc_box]="#E5C07B"
+
+theme[div_line]="#3F444F"
+
+# Temperature gradient
+theme[temp_start]="#98C379"
+theme[temp_mid]="#E5C07B"
+theme[temp_end]="#E06C75"
+
+# CPU gradients
+theme[cpu_start]="#98C379"
+theme[cpu_mid]="#E5C07B"
+theme[cpu_end]="#E06C75"
+
+# Free meter
+theme[free_start]="#98C379"
+theme[free_mid]="#E5C07B"
+theme[free_end]="#E06C75"
+
+# Cached meter
+theme[cached_start]="#98C379"
+theme[cached_mid]="#E5C07B"
+theme[cached_end]="#E06C75"
+
+# Available meter
+theme[available_start]="#98C379"
+theme[available_mid]="#E5C07B"
+theme[available_end]="#E06C75"
+
+# Used meter
+theme[used_start]="#98C379"
+theme[used_mid]="#E5C07B"
+theme[used_end]="#E06C75"
+
+# Download graph
+theme[download_start]="#98C379"
+theme[download_mid]="#E5C07B"
+theme[download_end]="#E06C75"
+
+# Upload graph
+theme[upload_start]="#98C379"
+theme[upload_mid]="#E5C07B"
+theme[upload_end]="#E06C75"
+
+# Process gradient
+theme[process_start]="#98C379"
+theme[process_mid]="#E5C07B"
+theme[process_end]="#E06C75"
