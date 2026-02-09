@@ -83,7 +83,3 @@ Themes are btop-style: `theme[key]="value"` with hex colours. Example: `onedark.
 - **Tuning**: `--tick-rate`, `--frame-rate`, `--spawn-delay-ms`, `--lock-delay-ms`, `--initial-level`, `--relaxed`, `--sand-settle`, `--no-animation`, `--no-menu`, `--high-color`.
 
 Full list: `setrixtui --help`.
-
-## Spec
-
-See [SPEC.md](SPEC.md) for mechanics, scoring, and implementation notes.
