@@ -16,6 +16,9 @@ crossterm = "0.29"
 ratatui = "0.30"
 tachyonfx = "0.23"
 thiserror = "2"
+[patch.crates-io]
+# RUSTSEC-2026-0009: time 0.3.45 DoS; patch from git (different source than crates.io)
+time = { git = "https://github.com/time-rs/time", tag = "v0.3.47" }
 
 [build-dependencies]
 
@@ -31,12 +34,39 @@ strip = true
 unsafe_op_in_unsafe_fn = "warn"
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
-cargo = "warn"
-# Allow some pedantic lints that are noisy for game code
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Allow some pedantic/nursery lints that are noisy or would change APIs
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+doc_markdown = "allow"
+match_same_arms = "allow"
+trivially_copy_pass_by_ref = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+missing_const_for_fn = "allow"
+needless_pass_by_ref_mut = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+if_not_else = "allow"
+imprecise_flops = "allow"
+items_after_statements = "allow"
+manual_clamp = "allow"
+manual_let_else = "allow"
+map_unwrap_or = "allow"
+match_wildcard_for_single_variants = "allow"
+no_effect_underscore_binding = "allow"
+option_if_let_else = "allow"
+struct_excessive_bools = "allow"
+too_many_arguments = "allow"
+too_many_lines = "allow"
+uninlined_format_args = "allow"
+unnecessary_map_or = "allow"
+unnecessary_wraps = "allow"
+# Transitive deps (clap, ratatui, etc.) pull multiple versions; we don't control that
+multiple_crate_versions = "allow"

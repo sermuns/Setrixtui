@@ -49,10 +49,10 @@ impl Theme {
                 parse_hex("#C678DD").unwrap(), // net_box / magenta
                 parse_hex("#56B6C2").unwrap(), // hi_fg / proc_misc / cyan
             ],
-            bg: parse_hex("#31353F").unwrap(),       // meter_bg from onedark.theme
+            bg: parse_hex("#31353F").unwrap(), // meter_bg from onedark.theme
             div_line: parse_hex("#3F444F").unwrap(), // div_line
-            main_fg: parse_hex("#ABB2BF").unwrap(),  // main_fg
-            title: parse_hex("#E5C07B").unwrap(),    // title
+            main_fg: parse_hex("#ABB2BF").unwrap(), // main_fg
+            title: parse_hex("#E5C07B").unwrap(), // title
             inactive_fg: parse_hex("#5C6370").unwrap(), // inactive_fg
         }
     }
@@ -88,8 +88,8 @@ impl Theme {
                 self.sand = [
                     parse_hex("#00FF00").unwrap(), // bright green
                     parse_hex("#FFFF00").unwrap(), // yellow
-                    parse_hex("#FF0000").unwrap(),  // red
-                    parse_hex("#0088FF").unwrap(),  // blue
+                    parse_hex("#FF0000").unwrap(), // red
+                    parse_hex("#0088FF").unwrap(), // blue
                     parse_hex("#FF00FF").unwrap(), // magenta
                     parse_hex("#00FFFF").unwrap(), // cyan
                 ];
@@ -116,12 +116,20 @@ impl Theme {
         // Keys match onedark.theme; fallbacks are the same file’s hex values (no extra saturation).
         Self {
             sand: [
-                get("mem_box").or_else(|| get("cpu_start")).unwrap_or_else(|| parse_hex("#98C379").unwrap()),
-                get("title").or_else(|| get("cpu_mid")).unwrap_or_else(|| parse_hex("#E5C07B").unwrap()),
-                get("cpu_end").or_else(|| get("temp_end")).unwrap_or_else(|| parse_hex("#E06C75").unwrap()),
+                get("mem_box")
+                    .or_else(|| get("cpu_start"))
+                    .unwrap_or_else(|| parse_hex("#98C379").unwrap()),
+                get("title")
+                    .or_else(|| get("cpu_mid"))
+                    .unwrap_or_else(|| parse_hex("#E5C07B").unwrap()),
+                get("cpu_end")
+                    .or_else(|| get("temp_end"))
+                    .unwrap_or_else(|| parse_hex("#E06C75").unwrap()),
                 get("cpu_box").unwrap_or_else(|| parse_hex("#61AFEF").unwrap()),
                 get("net_box").unwrap_or_else(|| parse_hex("#C678DD").unwrap()),
-                get("hi_fg").or_else(|| get("proc_misc")).unwrap_or_else(|| parse_hex("#56B6C2").unwrap()),
+                get("hi_fg")
+                    .or_else(|| get("proc_misc"))
+                    .unwrap_or_else(|| parse_hex("#56B6C2").unwrap()),
             ],
             bg: get("meter_bg").unwrap_or_else(|| parse_hex("#31353F").unwrap()),
             div_line: get("div_line").unwrap_or_else(|| parse_hex("#3F444F").unwrap()),
@@ -151,7 +159,11 @@ fn parse_theme_file(s: &str) -> HashMap<String, String> {
                 let key = stripped[..end].trim();
                 let rest = stripped[end + 1..].trim();
                 if let Some(eq) = rest.find('=') {
-                    let value = rest[eq + 1..].trim().trim_matches('"').trim_matches('\'').to_string();
+                    let value = rest[eq + 1..]
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
                     if !value.is_empty() {
                         map.insert(key.to_string(), value);
                     }
@@ -166,14 +178,23 @@ fn parse_theme_file(s: &str) -> HashMap<String, String> {
 pub fn parse_hex(s: &str) -> Result<Color, ThemeError> {
     let s = s.trim().trim_start_matches('#');
     let (r, g, b) = if s.len() == 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
-        let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
-        let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
+        let r =
+            u8::from_str_radix(&s[0..2], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
+        let g =
+            u8::from_str_radix(&s[2..4], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
+        let b =
+            u8::from_str_radix(&s[4..6], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))?;
         (r, g, b)
     } else if s.len() == 3 {
-        let r = u8::from_str_radix(&s[0..1], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))? * 17;
-        let g = u8::from_str_radix(&s[1..2], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))? * 17;
-        let b = u8::from_str_radix(&s[2..3], 16).map_err(|_| ThemeError::InvalidHex(s.to_string()))? * 17;
+        let r = u8::from_str_radix(&s[0..1], 16)
+            .map_err(|_| ThemeError::InvalidHex(s.to_string()))?
+            * 17;
+        let g = u8::from_str_radix(&s[1..2], 16)
+            .map_err(|_| ThemeError::InvalidHex(s.to_string()))?
+            * 17;
+        let b = u8::from_str_radix(&s[2..3], 16)
+            .map_err(|_| ThemeError::InvalidHex(s.to_string()))?
+            * 17;
         (r, g, b)
     } else {
         return Err(ThemeError::InvalidHex(s.to_string()));

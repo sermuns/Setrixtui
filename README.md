@@ -79,7 +79,7 @@ Rough size: playfield needs `(width×6 + 2)` columns and `(height×3 + 2)` rows 
 |----------|-------------|
 | **Endless** (default) | Play until stack overflow. **R** restart, **Q** quit. |
 | **Timed** (`-m timed`, `--time-limit SECS`) | Score as much as you can before time runs out. **R** or **Q** when time’s up. |
-| **Clear** (`-m clear`, `--clear-lines N`) | Win by clearing N edge-to-edge lines. |
+| **Clear40** (`-m clear40`, `--clear-lines N`) | Goal: clear N lines (default 40) in as little time as possible. Once you reach N you keep playing until stack overflow; your best is the most lines cleared in a run. Time to N and total time are shown. |
 
 ## Controls
 
@@ -110,7 +110,7 @@ Themes are btop-style: `theme[key]="value"` with hex colours. See `onedark.theme
 ## CLI summary
 
 - **Playfield:** `--width COLS`, `--height ROWS` (default 10×24). Sized to fit the terminal.
-- **Mode:** `-m endless | timed | clear`. Timed: `--time-limit SECS`. Clear: `--clear-lines N`.
+- **Mode:** `-m endless | timed | clear40`. Timed: `--time-limit SECS`. Clear40: `--clear-lines N` (default 40).
 - **Difficulty:** `-d easy | medium | hard` (gravity and next-piece preview count).
 - **Theme:** `--theme FILE` (btop-style). `--palette normal | high-contrast | colorblind` for sand only.
 - **Tuning:** `--tick-rate`, `--frame-rate`, `--spawn-delay-ms`, `--lock-delay-ms`, `--initial-level`, `--relaxed`, `--sand-settle`, `--no-animation`, `--no-menu`, `--high-color`.

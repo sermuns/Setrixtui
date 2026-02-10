@@ -2,6 +2,7 @@
 
 mod app;
 mod game;
+mod highscores;
 mod input;
 mod theme;
 mod ui;
@@ -53,7 +54,7 @@ fn main() -> Result<()> {
         Hold a movement key to keep the piece moving. Use --theme to load a btop-style theme (e.g. onedark.theme)."
 )]
 pub struct Args {
-    /// Game mode: endless (play until game over), timed (score in 3 min), or clear (clear N lines to win).
+    /// Game mode: endless (play until game over), timed (score in time limit), or clear40 (clear 40 lines then keep going until fail).
     #[arg(short, long, default_value = "endless")]
     pub mode: GameMode,
 
@@ -73,7 +74,7 @@ pub struct Args {
     #[arg(long, default_value = "24", value_name = "ROWS")]
     pub height: u16,
 
-    /// In mode 'clear': number of lines to clear to win.
+    /// In mode 'clear40': goal lines (reach this then keep going until fail). Default 40.
     #[arg(long, default_value = "40", value_name = "N")]
     pub clear_lines: u32,
 
@@ -143,6 +144,7 @@ pub enum GameMode {
     #[default]
     Endless,
     Timed,
+    #[value(name = "clear40")]
     Clear,
 }
 
@@ -158,4 +160,3 @@ pub enum Difficulty {
 pub fn effective_playfield_width(_difficulty: Difficulty, width: u16) -> u16 {
     width
 }
-

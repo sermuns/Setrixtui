@@ -2,11 +2,10 @@
 
 use crate::theme::Theme;
 use ratatui::style::Color;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-
-/// Scale factor: each tetromino block is GRAIN_SCALE x GRAIN_SCALE grains.
+/// Scale factor: each tetromino block is `GRAIN_SCALE` x `GRAIN_SCALE` grains.
 pub const GRAIN_SCALE: usize = 6;
 
 /// Spawn zone: top N physical rows.
@@ -28,10 +27,18 @@ pub enum TetrominoKind {
 }
 
 impl TetrominoKind {
-    pub const ALL: [Self; 7] = [Self::I, Self::O, Self::T, Self::S, Self::Z, Self::J, Self::L];
+    pub const ALL: [Self; 7] = [
+        Self::I,
+        Self::O,
+        Self::T,
+        Self::S,
+        Self::Z,
+        Self::J,
+        Self::L,
+    ];
 
     /// 4 cells relative to origin (0,0); each (dx, dy).
-    pub fn cells(&self) -> &[(i8, i8); 4] {
+    pub const fn cells(&self) -> &[(i8, i8); 4] {
         match self {
             Self::I => &[(0, 0), (1, 0), (2, 0), (3, 0)],
             Self::O => &[(0, 0), (1, 0), (0, 1), (1, 1)],
@@ -43,9 +50,10 @@ impl TetrominoKind {
         }
     }
 
-    /// Colour index 0..6 for theme.sand_color().
-    /// If high_color is false, maps to 0..3 (Green, Yellow, Red, Blue).
-    pub fn color_index(&self, high_color: bool) -> u8 {
+    /// Colour index 0..6 for `theme.sand_color()`.
+    /// If `high_color` is false, maps to 0..3 (Green, Yellow, Red, Blue).
+    #[allow(clippy::needless_pass_by_value)] // self is small but used by callers with &kind
+    pub const fn color_index(&self, high_color: bool) -> u8 {
         if high_color {
             match self {
                 Self::S => 0, // Green
@@ -88,18 +96,17 @@ pub struct Piece {
 }
 
 impl Piece {
-    /// Returns the top-left grain coordinate for each of the 4 tetromino cells.
+    /// Returns the top-left grain coordinate for each of the 4 tetromino cells (uses logic position).
     pub fn cell_grain_origins(&self) -> [(i32, i32); 4] {
-        if self.kind == TetrominoKind::O {
-            let s = GRAIN_SCALE as i32;
-            return [
-                (self.gx, self.gy),
-                (self.gx + s, self.gy),
-                (self.gx, self.gy + s),
-                (self.gx + s, self.gy + s),
-            ];
-        }
+        self.cell_grain_origins_at(self.gx, self.gy)
+    }
 
+    /// Same as cell_grain_origins but with explicit offset (for smooth visual drawing).
+    pub fn cell_grain_origins_at(&self, ox: i32, oy: i32) -> [(i32, i32); 4] {
+        let s = GRAIN_SCALE as i32;
+        if self.kind == TetrominoKind::O {
+            return [(ox, oy), (ox + s, oy), (ox, oy + s), (ox + s, oy + s)];
+        }
         let cells = self.kind.cells();
         let r = self.rotation % 4;
         let (cx, cy) = match self.kind {
@@ -110,8 +117,8 @@ impl Piece {
         for (i, (dx, dy)) in cells.iter().enumerate() {
             let (rdx, rdy) = rotate_cell(*dx, *dy, r, cx, cy);
             out[i] = (
-                self.gx + (rdx as i32 * GRAIN_SCALE as i32),
-                self.gy + (rdy as i32 * GRAIN_SCALE as i32),
+                ox + (rdx as i32 * GRAIN_SCALE as i32),
+                oy + (rdy as i32 * GRAIN_SCALE as i32),
             );
         }
         out
@@ -170,7 +177,9 @@ impl Playfield {
     #[inline]
     pub fn get(&self, x: usize, y: usize) -> Option<Cell> {
         let (gw, gh) = self.grain_dims();
-        if x >= gw || y >= gh { return None; }
+        if x >= gw || y >= gh {
+            return None;
+        }
         self.rows.get(y).and_then(|row| row.get(x)).copied()
     }
 
@@ -189,19 +198,21 @@ impl Playfield {
     pub fn can_place(&self, piece: &Piece) -> bool {
         let origins = piece.cell_grain_origins();
         let (gw, gh) = self.grain_dims();
-        
+
         for (gx_origin, gy_origin) in origins {
             for dy in 0..GRAIN_SCALE as i32 {
                 for dx in 0..GRAIN_SCALE as i32 {
                     let gx = gx_origin + dx;
                     let gy = gy_origin + dy;
-                    
+
                     // Boundary check
                     if gx < 0 || gx >= gw as i32 || gy >= gh as i32 {
                         return false;
                     }
-                    if gy < 0 { continue; }
-                    
+                    if gy < 0 {
+                        continue;
+                    }
+
                     // Collision check
                     if let Some(Cell::Sand(..)) = self.get(gx as usize, gy as usize) {
                         return false;
@@ -212,14 +223,18 @@ impl Playfield {
         true
     }
 
-
     /// Edge-to-edge clear: one colour connects left (x=0) to right (x=width-1); path can be slanted (8-neighbour).
     /// Returns (number of such clears, list of (x,y) cells to clear).
     pub fn find_spanning_components(&self) -> (u32, Vec<(usize, usize)>) {
         const NEIGHBOURS_8: [(i16, i16); 8] = [
-            (-1, -1), (-1, 0), (-1, 1),
-            (0, -1),           (0, 1),
-            (1, -1),  (1, 0),  (1, 1),
+            (-1, -1),
+            (-1, 0),
+            (-1, 1),
+            (0, -1),
+            (0, 1),
+            (1, -1),
+            (1, 0),
+            (1, 1),
         ];
         let (gw, gh) = self.grain_dims();
         let mut num_clears = 0u32;
@@ -278,12 +293,12 @@ impl Playfield {
         // Uses tick_count for dynamic shuffle
         let seed = self.tick_count.wrapping_mul(31).wrapping_add(gw as u32);
         // Simple swap-based shuffle
-        for i in 0..gw/4 {
+        for i in 0..gw / 4 {
             let j = (seed as usize + i) % gw;
             let k = (seed as usize * 17 + i) % gw;
             x_order.swap(j, k);
         }
-        
+
         let limit_y = gh.saturating_sub(1);
         for y in (0..limit_y).rev() {
             for &x in &x_order {
@@ -298,7 +313,7 @@ impl Playfield {
                     else {
                         let try_left = x > 0 && self.get(x - 1, y + 1) == Some(Cell::Empty);
                         let try_right = x + 1 < gw && self.get(x + 1, y + 1) == Some(Cell::Empty);
-                        
+
                         let go_left = if try_left && try_right {
                             left_first
                         } else {
@@ -338,7 +353,6 @@ impl Playfield {
         }
         None
     }
-
 }
 
 /// Bag of 7 tetrominoes (random order, then refill).
@@ -369,7 +383,7 @@ impl Bag {
     }
 
     fn next_rand(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_mul(1103515245).wrapping_add(12345);
+        self.rng = self.rng.wrapping_mul(1_103_515_245).wrapping_add(12345);
         self.rng >> 16
     }
 
@@ -379,7 +393,6 @@ impl Bag {
         }
         self.queue.remove(0)
     }
-
 }
 
 impl Default for Bag {
@@ -432,6 +445,9 @@ pub struct GameState {
     pub crumble_delay_ticks: u32,
     pub combo_multiplier: u32,
     pub combo_timer_ticks: u32,
+    /// Visual position (grain coords) for smooth sliding; interpolates toward piece.gx/gy each frame.
+    piece_visual_gx: f32,
+    piece_visual_gy: f32,
 }
 
 impl GameState {
@@ -442,8 +458,10 @@ impl GameState {
         let p3 = bag.next();
         let p4 = bag.next();
         let piece = Some(Self::spawn_piece(width, height, p1));
-        let next_pieces = vec![p2, p3, p4];
-        
+        let (vx, vy) = piece
+            .as_ref()
+            .map(|p| (p.gx as f32, p.gy as f32))
+            .unwrap_or((0.0, 0.0));
         let now = Instant::now();
         let spawn_ready_at = (config.spawn_delay_ms > 0)
             .then(|| now + std::time::Duration::from_millis(config.spawn_delay_ms));
@@ -451,7 +469,7 @@ impl GameState {
             theme,
             playfield: Playfield::new(width, height),
             piece,
-            next_pieces,
+            next_pieces: vec![p2, p3, p4],
             bag,
             score: 0,
             level: config.initial_level,
@@ -472,14 +490,34 @@ impl GameState {
             crumble_delay_ticks: 0,
             combo_multiplier: 1,
             combo_timer_ticks: 0,
+            piece_visual_gx: vx,
+            piece_visual_gy: vy,
         }
+    }
+
+    /// Call every frame to smooth-slide the piece visual toward its logic position.
+    pub fn tick_piece_visual(&mut self, dt_secs: f32) {
+        if let Some(ref piece) = self.piece {
+            let speed = 55.0; // fast catch-up: smooth slide, reaches target quickly
+            let t = (dt_secs * speed).min(1.0);
+            self.piece_visual_gx += (piece.gx as f32 - self.piece_visual_gx) * t;
+            self.piece_visual_gy += (piece.gy as f32 - self.piece_visual_gy) * t;
+        }
+    }
+
+    /// Piece origins for drawing (uses smoothed visual position so the block slides instead of snapping).
+    pub fn piece_draw_origins(&self) -> Option<[(i32, i32); 4]> {
+        self.piece.as_ref().map(|p| {
+            p.cell_grain_origins_at(
+                self.piece_visual_gx.round() as i32,
+                self.piece_visual_gy.round() as i32,
+            )
+        })
     }
 
     /// True if the current piece is still in spawn delay (no gravity / no input).
     pub fn is_spawn_delay(&self, now: Instant) -> bool {
-        self.spawn_ready_at
-            .map(|t| now < t)
-            .unwrap_or(false)
+        self.spawn_ready_at.map(|t| now < t).unwrap_or(false)
     }
 
     pub fn spawn_piece(width: u16, _height: u16, kind: TetrominoKind) -> Piece {
@@ -522,7 +560,7 @@ impl GameState {
         if let Some(ref piece) = self.piece {
             let mut test_p = piece.clone();
             test_p.gy += 1;
-            
+
             if !self.playfield.can_place(&test_p) {
                 // Piece is on the ground - lock instantly in Sandtrix
                 self.lock_piece();
@@ -538,7 +576,10 @@ impl GameState {
     pub fn on_move_or_rotate(&mut self, now: Instant) {
         if self.lock_delay_started.is_some() {
             self.lock_delay_started = Some(now);
-            self.lock_delay_resets = self.lock_delay_resets.saturating_add(1).min(LOCK_DELAY_RESET_LIMIT);
+            self.lock_delay_resets = self
+                .lock_delay_resets
+                .saturating_add(1)
+                .min(LOCK_DELAY_RESET_LIMIT);
         }
     }
 
@@ -567,7 +608,6 @@ impl GameState {
     }
 
     /// Wall kick order: try 0, -1, +1, -2, +2 (SRS-style).
-
     pub fn rotate_cw(&mut self, now: Instant) {
         if self.game_over || self.line_clear_in_progress || self.is_spawn_delay(now) {
             return;
@@ -642,7 +682,7 @@ impl GameState {
             None => return,
         };
         let color_index = piece.kind.color_index(self.high_color);
-        
+
         // --- PIECE FREEZING (Freeze & Crumble) ---
         // Instead of writing to the playfield instantly, we move grains to the frozen buffer.
         // This makes the piece "freeze" in place before dissolving.
@@ -651,17 +691,20 @@ impl GameState {
                 for dx in 0..GRAIN_SCALE as i32 {
                     let px = gx + dx;
                     let py = gy + dy;
-                    
+
                     // Boundary check to prevent grain loss
                     if px >= 0 && py >= 0 {
                         let tx = px as usize;
                         let ty = py as usize;
-                        if tx < self.playfield.width * GRAIN_SCALE && ty < self.playfield.height * GRAIN_SCALE {
+                        if tx < self.playfield.width * GRAIN_SCALE
+                            && ty < self.playfield.height * GRAIN_SCALE
+                        {
                             // --- L-SHADOW TAGGING ---
                             // Bottom row OR Right column of each 6x6 block cell is a shadow grain.
                             // This creates persistent edge separation.
-                            let is_shadow = (dy == GRAIN_SCALE as i32 - 1) || (dx == GRAIN_SCALE as i32 - 1);
-                            
+                            let is_shadow =
+                                (dy == GRAIN_SCALE as i32 - 1) || (dx == GRAIN_SCALE as i32 - 1);
+
                             self.frozen_grains.push(FrozenGrain {
                                 x: tx,
                                 y: ty,
@@ -678,7 +721,7 @@ impl GameState {
         // Sort grains by Y ascending so that pop() retrieves the bottom-most grains first.
         // This makes the piece dissolve from the bottom-up naturally.
         self.frozen_grains.sort_by_key(|g| g.y);
-        
+
         self.crumble_delay_ticks = 5; // Freeze for 5 ticks (snappy lock) before crumbling.
 
         // Trigger line clear check on the playfield
@@ -744,7 +787,8 @@ impl GameState {
             // Faster conversion (one full 6x6 block cell per logic tick).
             for _ in 0..36 {
                 if let Some(fg) = self.frozen_grains.pop() {
-                    self.playfield.set(fg.x, fg.y, Cell::Sand(fg.color_index, fg.is_shadow));
+                    self.playfield
+                        .set(fg.x, fg.y, Cell::Sand(fg.color_index, fg.is_shadow));
                 }
             }
         }
@@ -761,46 +805,101 @@ impl GameState {
         self.settle_left_first = !self.settle_left_first;
 
         // --- DYNAMIC CLEAR CHECK (During Physics/Crumble) ---
-        if (moved || (self.crumble_delay_ticks == 0 && !self.frozen_grains.is_empty())) && !self.line_clear_in_progress {
+        if (moved || (self.crumble_delay_ticks == 0 && !self.frozen_grains.is_empty()))
+            && !self.line_clear_in_progress
+        {
             self.process_clears();
         }
         self.update_game_over_status();
     }
 
-    /// Check for clears and update score/popups. 
-    /// Called after piece lock and during sand flow.
+    /// Check for clears and update score/popups.
+    /// Clears the spanning component plus any 8-connected frozen grains of the same colour
+    /// so the entire block clears at once (not just the part that had already turned to sand).
     pub fn process_clears(&mut self) {
-        if self.line_clear_in_progress { return; }
-        
+        if self.line_clear_in_progress {
+            return;
+        }
+
         let (num, cells) = self.playfield.find_spanning_components();
         if num > 0 {
+            const NEIGHBOURS_8: [(i16, i16); 8] = [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ];
+            let (gw, gh) = self.playfield.grain_dims();
+
+            // Colours that are part of the clear (spanning component)
+            let clear_colors: HashSet<u8> = cells
+                .iter()
+                .filter_map(|&(x, y)| self.playfield.get(x, y))
+                .filter_map(|c| match c {
+                    Cell::Sand(ci, _) => Some(ci),
+                    _ => None,
+                })
+                .collect();
+
+            let mut clear_set: HashSet<(usize, usize)> = cells.iter().copied().collect();
+            let frozen_map: HashMap<(usize, usize), u8> = self
+                .frozen_grains
+                .iter()
+                .map(|fg| ((fg.x, fg.y), fg.color_index))
+                .collect();
+
+            // Expand clear set to include 8-connected frozen grains of the same colour(s)
+            let mut frontier: VecDeque<(usize, usize)> = clear_set.iter().copied().collect();
+            while let Some((x, y)) = frontier.pop_front() {
+                for (dx, dy) in NEIGHBOURS_8 {
+                    let nx = x as i16 + dx;
+                    let ny = y as i16 + dy;
+                    if nx >= 0 && nx < gw as i16 && ny >= 0 && ny < gh as i16 {
+                        let (nx, ny) = (nx as usize, ny as usize);
+                        let is_frozen_same_color = frozen_map
+                            .get(&(nx, ny))
+                            .map_or(false, |&c| clear_colors.contains(&c));
+                        if is_frozen_same_color && clear_set.insert((nx, ny)) {
+                            frontier.push_back((nx, ny));
+                        }
+                    }
+                }
+            }
+
             // --- COMBO SYSTEM ---
             self.combo_multiplier = (self.combo_multiplier + 1).min(10);
             self.combo_timer_ticks = 90; // 1.5s at 60Hz
 
-            let pixel_score = cells.len() as u32;
+            let pixel_score = clear_set.len() as u32;
             let amount = pixel_score * self.combo_multiplier;
-            
+
             self.score += amount;
             self.lines_cleared += num;
             self.clears += num;
             self.level = 1 + self.lines_cleared / 10;
-            
-            self.line_clear_cells = cells.clone();
+
+            self.line_clear_cells = clear_set.into_iter().collect();
             self.line_clear_in_progress = true;
 
-            // Remove frozen/crumbling grains that sit in the clear zone so the whole block
-            // clears at once instead of leftover grains draining and falling after.
-            let clear_set: HashSet<(usize, usize)> = cells.into_iter().collect();
-            self.frozen_grains.retain(|fg| !clear_set.contains(&(fg.x, fg.y)));
+            let clear_cells: HashSet<(usize, usize)> =
+                self.line_clear_cells.iter().copied().collect();
+            self.frozen_grains
+                .retain(|fg| !clear_cells.contains(&(fg.x, fg.y)));
 
             // Score popup for EVERY clear trigger
             let (px, py) = if !self.line_clear_cells.is_empty() {
                 self.line_clear_cells[0]
             } else {
-                ((self.playfield.width * GRAIN_SCALE) / 2, (self.playfield.height * GRAIN_SCALE) / 2)
+                (
+                    (self.playfield.width * GRAIN_SCALE) / 2,
+                    (self.playfield.height * GRAIN_SCALE) / 2,
+                )
             };
-            
+
             self.popups.push(ScorePopup {
                 x: px,
                 y: py,
@@ -822,8 +921,13 @@ impl GameState {
         self.next_pieces.push(self.bag.next());
 
         self.piece = Some(Self::spawn_piece(width, height, next_kind));
+        if let Some(ref p) = self.piece {
+            self.piece_visual_gx = p.gx as f32;
+            self.piece_visual_gy = p.gy as f32;
+        }
         if self.spawn_delay_ms > 0 {
-            self.spawn_ready_at = Some(Instant::now() + std::time::Duration::from_millis(self.spawn_delay_ms));
+            self.spawn_ready_at =
+                Some(Instant::now() + std::time::Duration::from_millis(self.spawn_delay_ms));
         } else {
             self.spawn_ready_at = None;
         }

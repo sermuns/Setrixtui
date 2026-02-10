@@ -1,9 +1,9 @@
 //! App: terminal init, main loop, tick and key handling.
 
 use crate::game::GameState;
-use crate::input::{key_to_action, Action};
-use crate::{Args, GameConfig};
+use crate::input::{Action, key_to_action};
 use crate::theme::Theme;
+use crate::{Args, GameConfig};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 use tachyonfx::Effect;
 
 /// DAS (Delayed Auto-Shift): delay before movement starts repeating when you hold a key.
-const REPEAT_DELAY_MS: u64 = 170;
-/// ARR (Auto-Repeat Rate): time between repeated moves while holding. 50 ms ≈ 20 moves/sec.
-const REPEAT_INTERVAL_MS: u64 = 50;
+const REPEAT_DELAY_MS: u64 = 80;
+/// ARR (Auto-Repeat Rate): time between repeated moves while holding.
+const REPEAT_INTERVAL_MS: u64 = 38;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -34,7 +34,6 @@ pub enum QuitOption {
 pub enum GameOverReason {
     StackOverflow,
     TimeUp,
-    ClearedN,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +85,7 @@ pub struct App {
     last_repeat_fire: Option<Instant>,
     last_input_time: Instant,
     line_clear_started: Option<Instant>,
-    /// TachyonFX fade effect for line-clear (created when animation starts).
+    /// `TachyonFX` fade effect for line-clear (created when animation starts).
     line_clear_effect: Option<Effect>,
     /// Last time we processed the line-clear effect (for delta).
     line_clear_effect_process_time: Option<Instant>,
@@ -94,12 +93,20 @@ pub struct App {
     quit_selected: QuitOption,
     high_score_endless: u32,
     high_score_timed: u32,
+    high_score_clear: u32,
+    /// High scores at the start of the current game (for "New record!").
+    high_score_at_game_start: (u32, u32, u32),
+    /// True if this game set a new record for the current mode (used on game over screen).
+    new_high_score_this_game: bool,
+    /// When in Clear40: time (secs) when player first reached 40 lines; None until then.
+    time_to_40_secs: Option<u64>,
     /// Playfield size from current terminal when on menu (zoom out = bigger). Used when starting from menu; during play size is fixed.
     menu_playfield_width: u16,
     menu_playfield_height: u16,
+    last_frame_time: Instant,
 }
 
-fn default_tick_rate_for_difficulty(d: crate::Difficulty) -> f64 {
+const fn default_tick_rate_for_difficulty(d: crate::Difficulty) -> f64 {
     match d {
         crate::Difficulty::Easy => 30.0,
         crate::Difficulty::Medium => 50.0,
@@ -108,10 +115,15 @@ fn default_tick_rate_for_difficulty(d: crate::Difficulty) -> f64 {
 }
 
 impl App {
+    #[allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
     pub fn new(args: Args, config: GameConfig, theme: Theme) -> Result<Self> {
+        let (high_score_endless, high_score_timed, high_score_clear) =
+            crate::highscores::load_high_scores();
         let width = crate::effective_playfield_width(args.difficulty, args.width);
         let height = args.height;
+        #[allow(clippy::needless_borrow)]
         let state = GameState::new(theme.clone(), width, height, &config);
+        #[allow(clippy::float_cmp)]
         let tick_rate = if args.tick_rate == 18.0 {
             default_tick_rate_for_difficulty(args.difficulty)
         } else {
@@ -125,7 +137,7 @@ impl App {
         let now = Instant::now();
         Ok(Self {
             args,
-            config: config.clone(),
+            config,
             theme,
             effective_playfield_width: width,
             effective_playfield_height: height,
@@ -144,10 +156,15 @@ impl App {
             line_clear_effect_process_time: None,
             menu_state: MenuState::default(),
             quit_selected: QuitOption::Resume,
-            high_score_endless: 0,
-            high_score_timed: 0,
+            high_score_endless,
+            high_score_timed,
+            high_score_clear,
+            high_score_at_game_start: (high_score_endless, high_score_timed, high_score_clear),
+            new_high_score_this_game: false,
+            time_to_40_secs: None,
             menu_playfield_width: width,
             menu_playfield_height: height,
+            last_frame_time: now,
         })
     }
 
@@ -156,10 +173,10 @@ impl App {
         let height = self.effective_playfield_height;
         let now = Instant::now();
         let old_menu_state = self.menu_state.clone();
-        
+
         // Recalculate base tick rate according to current difficulty
         self.base_tick_rate = default_tick_rate_for_difficulty(self.args.difficulty);
-        
+
         self.state = GameState::new(self.theme.clone(), width, height, &self.config);
         self.screen = Screen::Playing;
         self.paused = false;
@@ -172,10 +189,22 @@ impl App {
         self.line_clear_effect = None;
         self.line_clear_effect_process_time = None;
         self.menu_state = old_menu_state; // Keep the ratman status!
-        
+        self.high_score_at_game_start = (
+            self.high_score_endless,
+            self.high_score_timed,
+            self.high_score_clear,
+        );
+        self.new_high_score_this_game = false;
+        self.time_to_40_secs = None;
+
         if self.menu_state.ratman_unlocked {
             self.args.high_color = true;
-            self.state = GameState::new(self.theme.clone(), self.effective_playfield_width, self.effective_playfield_height, &self.config);
+            self.state = GameState::new(
+                self.theme.clone(),
+                self.effective_playfield_width,
+                self.effective_playfield_height,
+                &self.config,
+            );
             self.state.high_color = true;
             self.base_tick_rate *= 1.5; // Ratman is extra fast
         }
@@ -183,8 +212,7 @@ impl App {
 
     fn apply_action(&mut self, action: Action, now: Instant) {
         match action {
-            Action::Quit => {}
-            Action::Pause => {}
+            Action::Quit | Action::Pause | Action::None => {}
             Action::MoveLeft => self.state.move_left(now),
             Action::MoveRight => self.state.move_right(now),
             Action::RotateCw => self.state.rotate_cw(now),
@@ -194,27 +222,30 @@ impl App {
                 self.state.hard_drop(now);
                 self.repeat_state = None;
             }
-            Action::None => {}
         }
     }
 
     fn tick_repeat(&mut self) {
         let now = Instant::now();
-        let (action, first) = match self.repeat_state {
-            Some(s) => s,
-            None => return,
+        let Some((action, first)) = self.repeat_state else {
+            return;
         };
-        if action == Action::Quit || action == Action::HardDrop || action == Action::Pause || action == Action::None {
+        if action == Action::Quit
+            || action == Action::HardDrop
+            || action == Action::Pause
+            || action == Action::None
+        {
             return;
         }
-        
+
         // Removed safety fallback that assumed sticky keys after 100ms;
         // now relying on KeyEventKind::Release and standard DAS/ARR logic.
 
         if first.elapsed() < Duration::from_millis(REPEAT_DELAY_MS) {
             return;
         }
-        let next = self.last_repeat_fire.unwrap_or(first) + Duration::from_millis(REPEAT_INTERVAL_MS);
+        let next =
+            self.last_repeat_fire.unwrap_or(first) + Duration::from_millis(REPEAT_INTERVAL_MS);
         if now >= next {
             self.apply_action(action, now);
             if matches!(
@@ -229,21 +260,27 @@ impl App {
 
     pub fn run(&mut self) -> Result<()> {
         use crossterm::{
+            event::{
+                KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+            },
             execute,
-            terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, size},
-            event::{PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags, KeyboardEnhancementFlags},
+            terminal::{
+                EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
+            },
         };
 
         enable_raw_mode()?;
         let mut stdout = std::io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
-        
-        // Attempt to enable enhanced keyboard for Release events
-        let _ = execute!(stdout, PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-        ));
 
-        let mut terminal = ratatui::DefaultTerminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
+        // Attempt to enable enhanced keyboard for Release events
+        let _ = execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+        );
+
+        let mut terminal =
+            ratatui::DefaultTerminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
 
         // Size playfield to fit terminal (no squeeze); respect --width/--height when they fit
         let (term_cols, term_rows) = size()?;
@@ -275,16 +312,21 @@ impl App {
         result
     }
 
+    #[allow(clippy::too_many_lines)]
     fn run_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         loop {
             let now = Instant::now();
+            let dt_secs = now.duration_since(self.last_frame_time).as_secs_f32();
+            self.last_frame_time = now;
+            self.state.tick_piece_visual(dt_secs);
             if self.screen == Screen::Menu {
                 let (c, r) = crossterm::terminal::size().unwrap_or((80, 24));
                 let (w, h) = crate::ui::playfield_size_for_terminal_clamped(c, r);
                 self.menu_playfield_width = w;
                 self.menu_playfield_height = h;
             }
-            let menu_size = (self.screen == Screen::Menu).then(|| (self.menu_playfield_width, self.menu_playfield_height));
+            let menu_size = (self.screen == Screen::Menu)
+                .then_some((self.menu_playfield_width, self.menu_playfield_height));
             terminal.draw(|f| {
                 crate::ui::draw(
                     f,
@@ -302,14 +344,25 @@ impl App {
                     &mut self.menu_state,
                     now,
                     self.args.no_animation,
-                    if self.screen == Screen::QuitMenu { Some(self.quit_selected) } else { None },
+                    if self.screen == Screen::QuitMenu {
+                        Some(self.quit_selected)
+                    } else {
+                        None
+                    },
                     menu_size,
-                )
+                    (
+                        self.high_score_endless,
+                        self.high_score_timed,
+                        self.high_score_clear,
+                    ),
+                    self.new_high_score_this_game,
+                    self.time_to_40_secs,
+                );
             })?;
 
             if self.state.line_clear_in_progress
                 && !self.args.no_animation
-                && self.line_clear_effect.as_ref().is_some_and(|e| e.done())
+                && self.line_clear_effect.as_ref().is_some_and(Effect::done)
             {
                 self.state.finish_line_clear();
                 self.line_clear_effect = None;
@@ -320,17 +373,17 @@ impl App {
             let mut rate = if self.args.relaxed {
                 self.base_tick_rate
             } else {
-                self.base_tick_rate * (1.0 + (self.state.level.saturating_sub(1) as f64) * 0.1)
+                self.base_tick_rate * (1.0 + f64::from(self.state.level.saturating_sub(1)) * 0.1)
             };
-            
+
             if self.menu_state.ratman_unlocked {
                 rate *= 2.0;
             }
 
             let tick_interval = Duration::from_secs_f64(1.0 / rate);
-            
-            // Limit event polling to hit ~60 FPS rendering (16ms)
-            let frame_duration = Duration::from_millis(16);
+
+            // Higher refresh rate for smooth movement and responsive input (4ms ≈ 250 FPS)
+            let frame_duration = Duration::from_millis(4);
             let loop_elapsed = now.elapsed();
             let timeout = frame_duration.saturating_sub(loop_elapsed);
 
@@ -340,17 +393,37 @@ impl App {
             // Timed mode check
             if self.screen == Screen::Playing && self.args.mode == crate::GameMode::Timed {
                 let elapsed = now.duration_since(self.game_start).as_secs();
-                if elapsed >= self.args.time_limit as u64 {
+                if elapsed >= u64::from(self.args.time_limit) {
                     self.screen = Screen::GameOver;
                     self.game_over_reason = Some(GameOverReason::TimeUp);
                 }
             }
-            
-            // High score update
+
+            // High score update (during play for Endless/Timed; Clear is updated on win below)
             match self.args.mode {
-                crate::GameMode::Endless => if self.state.score > self.high_score_endless { self.high_score_endless = self.state.score; },
-                crate::GameMode::Timed => if self.state.score > self.high_score_timed { self.high_score_timed = self.state.score; },
-                _ => {}
+                crate::GameMode::Endless => {
+                    if self.state.score > self.high_score_endless {
+                        self.high_score_endless = self.state.score;
+                        self.new_high_score_this_game = true;
+                        let _ = crate::highscores::save_high_scores(
+                            self.high_score_endless,
+                            self.high_score_timed,
+                            self.high_score_clear,
+                        );
+                    }
+                }
+                crate::GameMode::Timed => {
+                    if self.state.score > self.high_score_timed {
+                        self.high_score_timed = self.state.score;
+                        self.new_high_score_this_game = true;
+                        let _ = crate::highscores::save_high_scores(
+                            self.high_score_endless,
+                            self.high_score_timed,
+                            self.high_score_clear,
+                        );
+                    }
+                }
+                crate::GameMode::Clear => {}
             }
 
             if event::poll(timeout)? {
@@ -358,7 +431,7 @@ impl App {
                     if let Event::Key(key) = event::read()? {
                         let action = key_to_action(key);
                         self.last_input_time = Instant::now();
-                        
+
                         // Ignore OS repeats and only process first Press.
                         // Filter out redundant OS presses if we're already repeating that action ourselves.
                         if key.kind != KeyEventKind::Press {
@@ -370,7 +443,7 @@ impl App {
                             }
                             continue;
                         }
-                        
+
                         // If we are already repeating this action, ignore subsequent OS Press events
                         if self.repeat_state.map(|(a, _)| a) == Some(action) {
                             continue;
@@ -380,65 +453,86 @@ impl App {
                             Screen::Menu => {
                                 match action {
                                     Action::Quit => return Ok(()),
-                                    Action::MoveLeft => {
-                                        match self.menu_state.current_tab {
-                                            MenuTab::Difficulty => {
-                                                self.menu_state.selected_difficulty = match self.menu_state.selected_difficulty {
-                                                    crate::Difficulty::Easy => crate::Difficulty::Hard,
-                                                    crate::Difficulty::Medium => crate::Difficulty::Easy,
-                                                    crate::Difficulty::Hard => crate::Difficulty::Medium,
-                                                };
-                                            }
-                                            MenuTab::Mode => {
-                                                self.menu_state.selected_mode = match self.menu_state.selected_mode {
-                                                    crate::GameMode::Endless => crate::GameMode::Clear,
-                                                    crate::GameMode::Timed => crate::GameMode::Endless,
-                                                    crate::GameMode::Clear => crate::GameMode::Timed,
-                                                };
-                                            }
-                                            _ => {}
+                                    Action::MoveLeft => match self.menu_state.current_tab {
+                                        MenuTab::Difficulty => {
+                                            self.menu_state.selected_difficulty = match self
+                                                .menu_state
+                                                .selected_difficulty
+                                            {
+                                                crate::Difficulty::Easy => crate::Difficulty::Hard,
+                                                crate::Difficulty::Medium => {
+                                                    crate::Difficulty::Easy
+                                                }
+                                                crate::Difficulty::Hard => {
+                                                    crate::Difficulty::Medium
+                                                }
+                                            };
                                         }
-                                    }
-                                    Action::MoveRight => {
-                                        match self.menu_state.current_tab {
-                                            MenuTab::Difficulty => {
-                                                self.menu_state.selected_difficulty = match self.menu_state.selected_difficulty {
-                                                    crate::Difficulty::Easy => crate::Difficulty::Medium,
-                                                    crate::Difficulty::Medium => crate::Difficulty::Hard,
-                                                    crate::Difficulty::Hard => crate::Difficulty::Easy,
-                                                };
-                                            }
-                                            MenuTab::Mode => {
-                                                self.menu_state.selected_mode = match self.menu_state.selected_mode {
-                                                    crate::GameMode::Endless => crate::GameMode::Timed,
-                                                    crate::GameMode::Timed => crate::GameMode::Clear,
-                                                    crate::GameMode::Clear => crate::GameMode::Endless,
-                                                };
-                                            }
-                                            _ => {}
+                                        MenuTab::Mode => {
+                                            self.menu_state.selected_mode = match self
+                                                .menu_state
+                                                .selected_mode
+                                            {
+                                                crate::GameMode::Endless => crate::GameMode::Clear,
+                                                crate::GameMode::Timed => crate::GameMode::Endless,
+                                                crate::GameMode::Clear => crate::GameMode::Timed,
+                                            };
                                         }
-                                    }
+                                        MenuTab::Start => {}
+                                    },
+                                    Action::MoveRight => match self.menu_state.current_tab {
+                                        MenuTab::Difficulty => {
+                                            self.menu_state.selected_difficulty = match self
+                                                .menu_state
+                                                .selected_difficulty
+                                            {
+                                                crate::Difficulty::Easy => {
+                                                    crate::Difficulty::Medium
+                                                }
+                                                crate::Difficulty::Medium => {
+                                                    crate::Difficulty::Hard
+                                                }
+                                                crate::Difficulty::Hard => crate::Difficulty::Easy,
+                                            };
+                                        }
+                                        MenuTab::Mode => {
+                                            self.menu_state.selected_mode = match self
+                                                .menu_state
+                                                .selected_mode
+                                            {
+                                                crate::GameMode::Endless => crate::GameMode::Timed,
+                                                crate::GameMode::Timed => crate::GameMode::Clear,
+                                                crate::GameMode::Clear => crate::GameMode::Endless,
+                                            };
+                                        }
+                                        MenuTab::Start => {}
+                                    },
                                     Action::SoftDrop => {
-                                        self.menu_state.current_tab = match self.menu_state.current_tab {
-                                            MenuTab::Difficulty => MenuTab::Mode,
-                                            MenuTab::Mode => MenuTab::Start,
-                                            MenuTab::Start => MenuTab::Difficulty,
-                                        };
+                                        self.menu_state.current_tab =
+                                            match self.menu_state.current_tab {
+                                                MenuTab::Difficulty => MenuTab::Mode,
+                                                MenuTab::Mode => MenuTab::Start,
+                                                MenuTab::Start => MenuTab::Difficulty,
+                                            };
                                     }
                                     Action::RotateCw | Action::RotateCcw => {
-                                        self.menu_state.current_tab = match self.menu_state.current_tab {
-                                            MenuTab::Difficulty => MenuTab::Start,
-                                            MenuTab::Mode => MenuTab::Difficulty,
-                                            MenuTab::Start => MenuTab::Mode,
-                                        };
+                                        self.menu_state.current_tab =
+                                            match self.menu_state.current_tab {
+                                                MenuTab::Difficulty => MenuTab::Start,
+                                                MenuTab::Mode => MenuTab::Difficulty,
+                                                MenuTab::Start => MenuTab::Mode,
+                                            };
                                     }
                                     Action::HardDrop => {
-                                            if self.menu_state.current_tab == MenuTab::Start {
-                                            self.args.difficulty = self.menu_state.selected_difficulty;
+                                        if self.menu_state.current_tab == MenuTab::Start {
+                                            self.args.difficulty =
+                                                self.menu_state.selected_difficulty;
                                             self.args.mode = self.menu_state.selected_mode;
                                             self.config.difficulty = self.args.difficulty;
-                                            self.effective_playfield_width = self.menu_playfield_width;
-                                            self.effective_playfield_height = self.menu_playfield_height;
+                                            self.effective_playfield_width =
+                                                self.menu_playfield_width;
+                                            self.effective_playfield_height =
+                                                self.menu_playfield_height;
                                             self.reset_game();
                                         } else {
                                             self.menu_state.current_tab = MenuTab::Start;
@@ -463,11 +557,14 @@ impl App {
 
                                         if key.code == KeyCode::Enter {
                                             if self.menu_state.current_tab == MenuTab::Start {
-                                                self.args.difficulty = self.menu_state.selected_difficulty;
+                                                self.args.difficulty =
+                                                    self.menu_state.selected_difficulty;
                                                 self.args.mode = self.menu_state.selected_mode;
                                                 self.config.difficulty = self.args.difficulty;
-                                                self.effective_playfield_width = self.menu_playfield_width;
-                                                self.effective_playfield_height = self.menu_playfield_height;
+                                                self.effective_playfield_width =
+                                                    self.menu_playfield_width;
+                                                self.effective_playfield_height =
+                                                    self.menu_playfield_height;
                                                 self.reset_game();
                                             } else {
                                                 self.menu_state.current_tab = MenuTab::Start;
@@ -478,32 +575,43 @@ impl App {
                             }
                             Screen::Playing => {
                                 if self.paused {
-                                    if action == Action::Pause { self.paused = false; }
-                                    else if action == Action::Quit { 
+                                    if action == Action::Pause {
+                                        self.paused = false;
+                                    } else if action == Action::Quit {
                                         self.screen = Screen::QuitMenu;
                                         self.quit_selected = QuitOption::Resume;
                                     }
+                                } else if action == Action::Pause {
+                                    self.paused = true;
                                 } else {
-                                    if action == Action::Pause { self.paused = true; }
-                                    else {
-                                        self.apply_action(action, Instant::now());
-                                        if matches!(action, Action::MoveLeft | Action::MoveRight | Action::RotateCw | Action::RotateCcw) {
-                                            self.state.on_move_or_rotate(Instant::now());
-                                        }
-                                        let repeatable = matches!(action, Action::MoveLeft | Action::MoveRight | Action::SoftDrop);
-                                        if repeatable {
-                                            self.repeat_state = Some((action, Instant::now()));
-                                            self.last_repeat_fire = None;
-                                        }
-                                        if action == Action::Quit { 
-                                            self.screen = Screen::QuitMenu;
-                                            self.quit_selected = QuitOption::Resume;
-                                        }
-                                        
-                                        // If the action caused a lock, clear repeat state to prevent "input memory"
-                                        if self.state.line_clear_in_progress || self.state.piece.is_none() {
-                                            self.repeat_state = None;
-                                        }
+                                    self.apply_action(action, Instant::now());
+                                    if matches!(
+                                        action,
+                                        Action::MoveLeft
+                                            | Action::MoveRight
+                                            | Action::RotateCw
+                                            | Action::RotateCcw
+                                    ) {
+                                        self.state.on_move_or_rotate(Instant::now());
+                                    }
+                                    let repeatable = matches!(
+                                        action,
+                                        Action::MoveLeft | Action::MoveRight | Action::SoftDrop
+                                    );
+                                    if repeatable {
+                                        self.repeat_state = Some((action, Instant::now()));
+                                        self.last_repeat_fire = None;
+                                    }
+                                    if action == Action::Quit {
+                                        self.screen = Screen::QuitMenu;
+                                        self.quit_selected = QuitOption::Resume;
+                                    }
+
+                                    // If the action caused a lock, clear repeat state to prevent "input memory"
+                                    if self.state.line_clear_in_progress
+                                        || self.state.piece.is_none()
+                                    {
+                                        self.repeat_state = None;
                                     }
                                 }
                             }
@@ -525,25 +633,26 @@ impl App {
                                             QuitOption::Exit => QuitOption::MainMenu,
                                         };
                                     }
-                                    Action::HardDrop => {
-                                        match self.quit_selected {
-                                            QuitOption::Resume => self.screen = Screen::Playing,
-                                            QuitOption::MainMenu => self.screen = Screen::Menu,
-                                            QuitOption::Exit => return Ok(()),
-                                        }
-                                    }
+                                    Action::HardDrop => match self.quit_selected {
+                                        QuitOption::Resume => self.screen = Screen::Playing,
+                                        QuitOption::MainMenu => self.screen = Screen::Menu,
+                                        QuitOption::Exit => return Ok(()),
+                                    },
                                     Action::Pause | Action::Quit => {
                                         self.screen = Screen::Playing;
                                     }
-                                    _ => {
+                                    Action::None => {
                                         // If user hits Enter/Space directly via Action::HardDrop it confirm.
                                         // The SoftDrop (Down) and RotateCw (Up) are now mapped to cycling.
                                     }
                                 }
                             }
                             Screen::GameOver => {
-                                if action == Action::Quit { return Ok(()); }
-                                if key.code == KeyCode::Char('r') || key.code == KeyCode::Char('R') {
+                                if action == Action::Quit {
+                                    return Ok(());
+                                }
+                                if key.code == KeyCode::Char('r') || key.code == KeyCode::Char('R')
+                                {
                                     self.reset_game();
                                 }
                             }
@@ -561,38 +670,77 @@ impl App {
                     // --- DIFFICULTY-SYNCED SAND ---
                     // Physics now move at the same rate as gravity/logic.
                     // This makes "Easy" feel heavy and deliberate, and "Hard" fast but fair.
-                    let steps = if self.menu_state.ratman_unlocked { 2 } else { 1 };
+                    let steps = if self.menu_state.ratman_unlocked {
+                        2
+                    } else {
+                        1
+                    };
                     for _ in 0..steps {
                         self.state.tick_sand();
                     }
                 }
-                
+
                 // Check for locking EVERY frame for maximum "snappiness"
                 self.state.check_lock(Instant::now());
 
                 // --- DYNAMIC CLEAR CHECK ---
                 // Already handled inside state.tick_sand() or when piece locks.
-                if self.state.game_over {
-                    self.game_over_reason = Some(GameOverReason::StackOverflow);
-                    self.screen = Screen::GameOver;
-                } else if self.args.mode == crate::GameMode::Timed
-                    && self.game_start.elapsed() >= Duration::from_secs(self.args.time_limit as u64)
-                {
-                    self.game_over_reason = Some(GameOverReason::TimeUp);
-                    self.screen = Screen::GameOver;
-                } else if self.args.mode == crate::GameMode::Clear
+                // Clear40: record time when first reaching goal (e.g. 40 lines)
+                if self.args.mode == crate::GameMode::Clear
+                    && self.time_to_40_secs.is_none()
                     && self.state.lines_cleared >= self.args.clear_lines
                 {
-                    self.game_over_reason = Some(GameOverReason::ClearedN);
+                    self.time_to_40_secs = Some(self.game_start.elapsed().as_secs());
+                }
+                if self.state.game_over {
+                    self.game_over_reason = Some(GameOverReason::StackOverflow);
+                    if self.args.mode == crate::GameMode::Endless {
+                        if self.state.score > self.high_score_endless {
+                            self.high_score_endless = self.state.score;
+                            self.new_high_score_this_game = true;
+                            let _ = crate::highscores::save_high_scores(
+                                self.high_score_endless,
+                                self.high_score_timed,
+                                self.high_score_clear,
+                            );
+                        }
+                    } else if self.args.mode == crate::GameMode::Clear {
+                        // Clear40: best = most lines cleared
+                        if self.state.lines_cleared > self.high_score_clear {
+                            self.high_score_clear = self.state.lines_cleared;
+                            self.new_high_score_this_game = true;
+                            let _ = crate::highscores::save_high_scores(
+                                self.high_score_endless,
+                                self.high_score_timed,
+                                self.high_score_clear,
+                            );
+                        }
+                    }
+                    self.screen = Screen::GameOver;
+                } else if self.args.mode == crate::GameMode::Timed
+                    && self.game_start.elapsed()
+                        >= Duration::from_secs(u64::from(self.args.time_limit))
+                {
+                    self.game_over_reason = Some(GameOverReason::TimeUp);
+                    if self.state.score > self.high_score_timed {
+                        self.high_score_timed = self.state.score;
+                        self.new_high_score_this_game = true;
+                        let _ = crate::highscores::save_high_scores(
+                            self.high_score_endless,
+                            self.high_score_timed,
+                            self.high_score_clear,
+                        );
+                    }
                     self.screen = Screen::GameOver;
                 }
-                if self.state.line_clear_in_progress && !self.state.line_clear_cells.is_empty() {
-                    if self.args.no_animation {
-                        self.state.finish_line_clear();
-                        self.line_clear_started = None;
-                        self.line_clear_effect = None;
-                        self.line_clear_effect_process_time = None;
-                    }
+                if self.state.line_clear_in_progress
+                    && !self.state.line_clear_cells.is_empty()
+                    && self.args.no_animation
+                {
+                    self.state.finish_line_clear();
+                    self.line_clear_started = None;
+                    self.line_clear_effect = None;
+                    self.line_clear_effect_process_time = None;
                 }
             }
         }

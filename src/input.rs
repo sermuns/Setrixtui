@@ -18,14 +18,16 @@ pub enum Action {
 
 /// Map key event to game action. Supports both normal (arrows, space) and vim (hjkl, etc.).
 pub fn key_to_action(key: KeyEvent) -> Action {
-    let KeyEvent { code, modifiers, .. } = key;
+    let KeyEvent {
+        code, modifiers, ..
+    } = key;
     let no_mod = modifiers.is_empty() || modifiers == KeyModifiers::SHIFT;
     if !no_mod && modifiers != KeyModifiers::CONTROL {
         return Action::None;
     }
     match code {
         KeyCode::Char('q') | KeyCode::Esc if no_mod => Action::Quit,
-        KeyCode::Char('p') | KeyCode::Char(' ') if modifiers == KeyModifiers::CONTROL => Action::Pause,
+        KeyCode::Char('p' | ' ') if modifiers == KeyModifiers::CONTROL => Action::Pause,
         KeyCode::Char('p') if no_mod => Action::Pause,
         KeyCode::Left | KeyCode::Char('h') if no_mod => Action::MoveLeft,
         KeyCode::Right | KeyCode::Char('l') if no_mod => Action::MoveRight,
