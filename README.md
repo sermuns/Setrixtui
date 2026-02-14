@@ -1,12 +1,10 @@
 <div align="center">
 
-  ![Logo](./assets/Screenshot_20260209-034648.png)
+![banner](./assets/banner.png)
 
-  **Setrixtui**
+![written in Rust](https://img.shields.io/badge/language-rust-red.svg?style=flat-square)
 
-  ![written in Rust](https://img.shields.io/badge/language-rust-red.svg?style=flat-square)
-
-  A terminal puzzle game: falling blocks that turn into sand. Clear lines by connecting one colour from edge to edge.
+A terminal puzzle game: falling blocks that turn into sand. Clear lines by connecting one colour from edge to edge.
 
 </div>
 
@@ -40,12 +38,9 @@ cargo build --release
 ./target/release/setrixtui
 ```
 
-
 https://github.com/user-attachments/assets/2f575220-b1a0-4590-8472-b52333a304dc
 
-
 By default you get the main menu (difficulty, mode), then play. Endless mode and easy difficulty are selected by default. Use `--theme ./onedark.theme` for the One Dark theme (otherwise the built-in One Dark is used).
-
 
 Start without the menu:
 
@@ -75,26 +70,26 @@ Rough size: playfield needs `(width×6 + 2)` columns and `(height×3 + 2)` rows 
 
 ## Modes
 
-| Mode     | Description |
-|----------|-------------|
-| **Endless** (default) | Play until stack overflow. **R** restart, **Q** quit. |
-| **Timed** (`-m timed`, `--time-limit SECS`) | Score as much as you can before time runs out. **R** or **Q** when time’s up. |
+| Mode                                          | Description                                                                                                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Endless** (default)                         | Play until stack overflow. **R** restart, **Q** quit.                                                                                                                                                     |
+| **Timed** (`-m timed`, `--time-limit SECS`)   | Score as much as you can before time runs out. **R** or **Q** when time’s up.                                                                                                                             |
 | **Clear40** (`-m clear40`, `--clear-lines N`) | Goal: clear N lines (default 40) in as little time as possible. Once you reach N you keep playing until stack overflow; your best is the most lines cleared in a run. Time to N and total time are shown. |
 
 ## Controls
 
 Movement keys repeat when held. Normal and vim-style bindings are supported.
 
-| Action     | Normal        | Vim    |
-|------------|---------------|--------|
-| Left       | ←             | h      |
-| Right      | →             | l      |
-| Rotate CW  | ↑             | k / i  |
-| Rotate CCW | (see --help)  | u      |
-| Soft drop  | ↓             | j      |
-| Hard drop  | Enter / Space | Space  |
-| Pause      | p             | p      |
-| Quit       | q / Esc       | q      |
+| Action     | Normal        | Vim   |
+| ---------- | ------------- | ----- |
+| Left       | ←             | h     |
+| Right      | →             | l     |
+| Rotate CW  | ↑             | k / i |
+| Rotate CCW | (see --help)  | u     |
+| Soft drop  | ↓             | j     |
+| Hard drop  | Enter / Space | Space |
+| Pause      | p             | p     |
+| Quit       | q / Esc       | q     |
 
 **P** toggles pause. On game over or win: **R** restart, **Q** quit.
 
