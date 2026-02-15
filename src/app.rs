@@ -137,11 +137,7 @@ impl App {
         let height = args.height;
 
         let autoplay = if args.no_menu { args.autoplay } else { false };
-        let auto_restart = if args.no_menu {
-            args.auto_restart
-        } else {
-            false
-        };
+        let auto_restart = if args.no_menu { args.auto_restart } else { false };
 
         #[allow(clippy::needless_borrow)]
         let state = GameState::new(theme.clone(), width, height, &config);
@@ -210,6 +206,7 @@ impl App {
         let now = Instant::now();
         let old_menu_state = self.menu_state.clone();
 
+
         // Recalculate base tick rate according to current difficulty
         self.base_tick_rate = default_tick_rate_for_difficulty(self.args.difficulty);
 
@@ -250,9 +247,9 @@ impl App {
         if to_playing {
             self.screen = Screen::Playing;
         } else if prev_screen == Screen::Menu && self.autoplay {
-            self.screen = Screen::Menu;
+             self.screen = Screen::Menu;
         } else {
-            self.screen = Screen::Playing;
+             self.screen = Screen::Playing;
         }
     }
 
@@ -434,6 +431,7 @@ impl App {
             let loop_elapsed = now.elapsed();
             let timeout = frame_duration.saturating_sub(loop_elapsed);
 
+
             // Tick popups
             self.state.tick_popups(16);
 
@@ -578,9 +576,7 @@ impl App {
                                             match self.menu_state.current_tab {
                                                 MenuTab::Difficulty => MenuTab::Mode,
                                                 MenuTab::Mode => MenuTab::Autoplay,
-                                                MenuTab::Autoplay | MenuTab::AutoRestart => {
-                                                    MenuTab::Start
-                                                }
+                                                MenuTab::Autoplay | MenuTab::AutoRestart => MenuTab::Start,
                                                 MenuTab::Start => MenuTab::Difficulty,
                                             };
                                     }
@@ -589,9 +585,7 @@ impl App {
                                             match self.menu_state.current_tab {
                                                 MenuTab::Difficulty => MenuTab::Start,
                                                 MenuTab::Mode => MenuTab::Difficulty,
-                                                MenuTab::Autoplay | MenuTab::AutoRestart => {
-                                                    MenuTab::Mode
-                                                }
+                                                MenuTab::Autoplay | MenuTab::AutoRestart => MenuTab::Mode,
                                                 MenuTab::Start => MenuTab::Autoplay,
                                             };
                                     }
@@ -607,18 +601,13 @@ impl App {
                                                 self.menu_playfield_height;
                                             // Apply autoplay setting from menu
                                             self.autoplay = self.menu_state.autoplay_enabled;
-                                            self.auto_restart =
-                                                self.menu_state.auto_restart_enabled;
+                                            self.auto_restart = self.menu_state.auto_restart_enabled;
                                             self.reset_game(true);
                                         } else if self.menu_state.current_tab == MenuTab::Autoplay {
                                             // Toggle autoplay with Enter/HardDrop
-                                            self.menu_state.autoplay_enabled =
-                                                !self.menu_state.autoplay_enabled;
-                                        } else if self.menu_state.current_tab
-                                            == MenuTab::AutoRestart
-                                        {
-                                            self.menu_state.auto_restart_enabled =
-                                                !self.menu_state.auto_restart_enabled;
+                                             self.menu_state.autoplay_enabled = !self.menu_state.autoplay_enabled;
+                                        } else if self.menu_state.current_tab == MenuTab::AutoRestart {
+                                             self.menu_state.auto_restart_enabled = !self.menu_state.auto_restart_enabled;
                                         } else {
                                             self.menu_state.current_tab = MenuTab::Start;
                                         }
@@ -673,26 +662,17 @@ impl App {
                                             self.screen = Screen::QuitMenu;
                                             self.quit_selected = QuitOption::Resume;
                                         }
-                                        Action::MoveLeft
-                                        | Action::MoveRight
-                                        | Action::RotateCw
-                                        | Action::RotateCcw
-                                        | Action::SoftDrop
-                                        | Action::HardDrop => {
-                                            self.apply_action(action, now);
-                                            if matches!(
-                                                action,
-                                                Action::MoveLeft
-                                                    | Action::MoveRight
-                                                    | Action::RotateCw
-                                                    | Action::RotateCcw
-                                            ) {
-                                                self.state.on_move_or_rotate(now);
-                                            }
+                                        Action::MoveLeft | Action::MoveRight | Action::RotateCw 
+                                        | Action::RotateCcw | Action::SoftDrop | Action::HardDrop => {
+                                             self.apply_action(action, now);
+                                             if matches!(action, Action::MoveLeft | Action::MoveRight 
+                                                 | Action::RotateCw | Action::RotateCcw) {
+                                                 self.state.on_move_or_rotate(now);
+                                             }
                                         }
                                         _ => {}
                                     }
-
+                                    
                                     let repeatable = matches!(
                                         action,
                                         Action::MoveLeft | Action::MoveRight | Action::SoftDrop
@@ -704,7 +684,9 @@ impl App {
                                 }
 
                                 // If the action caused a lock, clear repeat state to prevent "input memory"
-                                if self.state.line_clear_in_progress || self.state.piece.is_none() {
+                                if self.state.line_clear_in_progress
+                                    || self.state.piece.is_none()
+                                {
                                     self.repeat_state = None;
                                 }
                             }
@@ -757,10 +739,10 @@ impl App {
                     }
                 }
             }
-
+            
             // Should we tick game logic?
             // Yes if playing, OR if in Menu and autoplay is enabled (background preview)
-            let should_tick = (self.screen == Screen::Playing && !self.paused)
+            let should_tick = (self.screen == Screen::Playing && !self.paused) 
                 || (self.screen == Screen::Menu && self.autoplay);
 
             if should_tick {
@@ -801,7 +783,10 @@ impl App {
                     self.apply_action(auto_action, now_ap);
                     if matches!(
                         auto_action,
-                        Action::MoveLeft | Action::MoveRight | Action::RotateCw | Action::RotateCcw
+                        Action::MoveLeft
+                            | Action::MoveRight
+                            | Action::RotateCw
+                            | Action::RotateCcw
                     ) {
                         self.state.on_move_or_rotate(now_ap);
                     }
@@ -840,7 +825,7 @@ impl App {
         {
             self.time_to_40_secs = Some(self.game_start.elapsed().as_secs());
         }
-
+        
         // Game Over Logic
         if self.state.game_over {
             // AUTO RESTART LOGIC
@@ -870,7 +855,7 @@ impl App {
                         self.high_score_timed = self.state.score;
                         self.new_high_score_this_game = true;
                         if !self.autoplay {
-                            let _ = crate::highscores::save_high_scores(
+                             let _ = crate::highscores::save_high_scores(
                                 self.high_score_endless,
                                 self.high_score_timed,
                                 self.high_score_clear,
@@ -898,9 +883,9 @@ impl App {
             // If in menu, showing game over screen is weird.
             // If in menu, we should probably just reset silently.
             if self.screen == Screen::Menu {
-                self.reset_game(false);
+                 self.reset_game(false);
             } else {
-                self.screen = Screen::GameOver;
+                 self.screen = Screen::GameOver;
             }
         } else if self.args.mode == crate::GameMode::Timed
             && self.game_start.elapsed() >= Duration::from_secs(u64::from(self.args.time_limit))
@@ -918,21 +903,21 @@ impl App {
                 }
             }
             if self.screen == Screen::Menu {
-                self.reset_game(false);
+                 self.reset_game(false);
             } else {
-                self.screen = Screen::GameOver;
+                 self.screen = Screen::GameOver;
             }
         }
-
+        
         // Handle clear animation finish
         if self.state.line_clear_in_progress
-            && !self.args.no_animation
-            && self.line_clear_effect.as_ref().is_some_and(Effect::done)
+             && !self.args.no_animation
+             && self.line_clear_effect.as_ref().is_some_and(Effect::done)
         {
-            self.state.finish_line_clear();
-            self.line_clear_effect = None;
-            self.line_clear_effect_process_time = None;
-            self.line_clear_started = None;
+             self.state.finish_line_clear();
+             self.line_clear_effect = None;
+             self.line_clear_effect_process_time = None;
+             self.line_clear_started = None;
         }
         // Handle instant clear (no animation)
         if self.state.line_clear_in_progress
